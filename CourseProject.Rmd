@@ -1,0 +1,83 @@
+---
+title: "Practical Machine Learning course - Predicting correctness in Exercise"
+author: "Andreas Schmidt Jensen"
+date: "10/27/2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+options(scipen=999)
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache=TRUE)
+```
+
+We look at data recorded for people performing barbell lifts correctly and incorrectly in five different ways. We are using the data to build a model that can predict the manner in which they did the exercises. We create different models using Decision trees and random forest. We show that random forest has the lowest out-of-sample error and use the model to predict a number of different test cases.
+
+## Preprocessing
+We get the datasets (a training and test set). In order to estimate out-of-sample we split the training set into two parts, a training and a test set. We thus consider the official test-set as a validation set.
+```{r}
+library(caret, quietly = T)
+dataset <- read.csv("pml-training.csv", na.strings=c("NA","","#DIV/0!")) # https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+validation <- read.csv("pml-testing.csv", na.strings=c("NA","","#DIV/0!")) #https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+# create test set for modelbuilding (consider the other test-set the validation set)
+set.seed(666)
+inTraining = createDataPartition(y = dataset$classe, p=.6, list=F)
+training <- dataset[inTraining, ]
+testing <- dataset[-inTraining, ]
+```
+
+We see that the dataset contains many different variables, quite a lot of them with many missing values. We can also see a number of fields having near zero variance. 
+```{r}
+str(training)
+nearZeroVar(training, saveMetrics=TRUE)
+```
+
+We remove the near-zero variance variables, the variables with mostly missing values, and the variables that are not relevant (we consider the time and window of the exercise, the specific user and the unique entry ID as irrelevant for the prediction).
+
+```{r}
+training <- training[, colSums(is.na(training)) == 0]
+training <- training[, -c(1:7)]
+```
+
+We can now fit a number of models on the data.
+
+### Classification Tree
+We start with a classification tree and train with a 5-fold cross-validation. We fit the model on the training set and predict in the test set. We see from the confusion matrix that quite a lot observations are incorrectly predicted.
+```{r}
+set.seed(666)
+fitRpart <- train(classe ~ ., data=training, method="rpart", trControl = trainControl(method="cv", number=5))
+matRpart <- table(predict(fitRpart, testing[, colnames(training)]), testing$classe)
+fitRpart
+matRpart
+```
+The accuracy is 
+```{r}
+sum(diag(matRpart)) / sum(matRpart)
+```
+
+### Random Forest
+We then fit using random forest and predict in the test set. Again we use cross-validation, which in random forest is very important to avoid overfitting. The confusion matrix looks much better here.
+```{r}
+set.seed(666)
+fitRf <- train(classe ~ ., data=training, method="rf", trControl = trainControl(method="cv", number=5), allowParallel=T)
+matRf <- table(predict(fitRf, testing[, colnames(training)]), testing$classe)
+fitRf
+matRf
+```
+Here, the accuracy is much better:
+```{r}
+sum(diag(matRf)) / sum(matRf)
+```
+
+## Out of sample error
+We end up using the random forest model as it performed best. We use it to estimate expected out of sample error. Since we fitted the model on the training set without using the test set at all, we can estimate the out of sample error based on the accuracy in the test set:
+```{r}
+(1-(sum(diag(matRf)) / sum(matRf)))*100
+```
+
+## Predicting the test cases
+Finally, we can predict on the validation set. Since we do not have the correct values in the validation set, we cannot calculate the accuracy here (this must be done in the final quiz). 
+```{r}
+predict(fitRf, validation[, colnames(training[,-c(53)])])
+```
